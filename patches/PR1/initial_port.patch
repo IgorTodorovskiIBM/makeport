@@ -1,79 +1,28 @@
 diff --git a/build.sh b/build.sh
-index 4c88b53..af584d1 100755
+index 4c88b53..5e56d60 100755
 --- a/build.sh
 +++ b/build.sh
-@@ -143,7 +143,7 @@ compile $OBJS
+@@ -22,6 +22,7 @@
+ 
+ : ${OUTDIR:=.}
+ OUTLIB="$OUTDIR/lib"
++PLATFORM=$(/bin/uname -s)
+ 
+ # Directory to find libraries in for '-lXXX'.
+ libdir=$exec_prefix/lib
+@@ -143,7 +144,12 @@ compile $OBJS
  
  # Link all the objects together.
  echo "linking make..."
--$CC $CFLAGS $LDFLAGS -L"$OUTLIB" $objs -lgnu $LOADLIBES -o "$OUTDIR/makenew$EXEEXT"
++set -x
++if [ ! ${PLATFORM} = "OS/390" ]; then
 +$CC $CFLAGS $LDFLAGS -L"$OUTLIB" -o "$OUTDIR/makenew$EXEEXT" $objs -lgnu $LOADLIBES
++else
+ $CC $CFLAGS $LDFLAGS -L"$OUTLIB" $objs -lgnu $LOADLIBES -o "$OUTDIR/makenew$EXEEXT"
++fi
  mv -f "$OUTDIR/makenew$EXEEXT" "$OUTDIR/make$EXEEXT"
  
  echo done.
-diff --git a/lib/concat-filename.c b/lib/concat-filename.c
-index 367e41d..db13a39 100644
---- a/lib/concat-filename.c
-+++ b/lib/concat-filename.c
-@@ -27,6 +27,13 @@
- 
- #include "filename.h"
- 
-+#ifdef __MVS__
-+  /* msf - inefficient hack for now */
-+  char* stpcpy(char* dest, const char* src) {
-+    strcpy(dest,src);
-+    return &dest[strlen(dest)];
-+  }
-+#endif
- /* Concatenate a directory filename, a relative filename and an optional
-    suffix.  The directory may end with the directory separator.  The second
-    argument may not start with the directory separator (it is relative).
-diff --git a/lib/error.c b/lib/error.c
-index 3657b51..cdd5112 100644
---- a/lib/error.c
-+++ b/lib/error.c
-@@ -202,7 +202,10 @@ print_errno_message (int errnum)
- #endif
- }
- 
--static void _GL_ATTRIBUTE_FORMAT_PRINTF (3, 0) _GL_ARG_NONNULL ((3))
-+static void
-+#if _LIBC
-+   _GL_ATTRIBUTE_FORMAT_PRINTF (3, 0) _GL_ARG_NONNULL ((3))
-+#endif
- error_tail (int status, int errnum, const char *message, va_list args)
- {
- #if _LIBC
-diff --git a/lib/fnmatch.c b/lib/fnmatch.c
-index 4da8c5f..221864a 100644
---- a/lib/fnmatch.c
-+++ b/lib/fnmatch.c
-@@ -27,7 +27,8 @@ USA.  */
- #endif
- 
- #include <errno.h>
--#include <fnmatch.h>
-+#include "fnmatch.h"
-+
- #include <ctype.h>
- 
- #if HAVE_STRING_H || defined _LIBC
-diff --git a/lib/getloadavg.c b/lib/getloadavg.c
-index ebb6f5d..b54eb96 100644
---- a/lib/getloadavg.c
-+++ b/lib/getloadavg.c
-@@ -355,6 +355,10 @@
- #  endif /* Not UMAX_43.  */
- # endif /* UMAX */
- 
-+# ifdef __MVS__
-+  #undef DGUX
-+#endif
-+
- # ifdef DGUX
- #  include <sys/dg_sys_info.h>
- # endif
 diff --git a/lib/glob.c b/lib/glob.c
 index adad16f..aa57b92 100644
 --- a/lib/glob.c
@@ -160,24 +109,6 @@ index adad16f..aa57b92 100644
  	    /* We found this file to be existing.  Now tell the rest
  	       of the function to copy this name into the result.  */
  	    flags |= GLOB_NOCHECK;
-diff --git a/lib/strerror-override.c b/lib/strerror-override.c
-index 61b7689..665c447 100644
---- a/lib/strerror-override.c
-+++ b/lib/strerror-override.c
-@@ -18,8 +18,11 @@
- /* Written by Bruno Haible <bruno@clisp.org>, 2010.  */
- 
- #include <config.h>
--
--#include "strerror-override.h"
-+#ifdef __MVS__
-+# include <stdlib.h>
-+#else
-+# include "strerror-override.h"
-+#endif
- 
- #include <errno.h>
- 
 diff --git a/src/arscan.c b/src/arscan.c
 index 3ce21db..06d9965 100644
 --- a/src/arscan.c
@@ -585,46 +516,6 @@ index de19e37..439cf91 100644
    return file;
  }
  
-diff --git a/src/os390.h b/src/os390.h
-new file mode 100644
-index 0000000..c18f764
---- /dev/null
-+++ b/src/os390.h
-@@ -0,0 +1,34 @@
-+#ifndef H_OS390
-+#define H_OS390 1
-+
-+#if (__CHARSET_LIB == 1)
-+#undef open
-+#define open __open_replaced
-+#undef pipe 
-+#define pipe __pipe_replaced
-+#include <fcntl.h>
-+#include <unistd.h>
-+#undef pipe
-+#undef open
-+
-+int __open_ascii(const char *filename, int opts, ...);
-+int __pipe_ascii(int [2]);
-+
-+int open(const char* path, int oflag, ...) asm("__open_ascii");
-+int pipe(int [2]) asm("__open_ascii");
-+#endif
-+
-+#include <string.h>
-+#include <sys/ps.h>
-+#include <unistd.h>
-+#include <limits.h>
-+#include <_Nascii.h>
-+#include <fcntl.h>
-+#include <libgen.h>
-+
-+int __getfdccsid(int fd);
-+int __setccsid(int fd, int ccsid);
-+int __chgfdccsid(int fd, unsigned short ccsid);
-+void __updateccsid(int fd, const char* path, int oflag, int perm);
-+
-+#endif
 diff --git a/src/output.c b/src/output.c
 index 2211749..e2b6bc7 100644
 --- a/src/output.c
@@ -707,3 +598,43 @@ index f18e785..46544a5 100644
      }
      $vos = 0;
      $pathsep = "/";
+diff --git a/src/os390.h b/src/os390.h
+new file mode 100644
+index 0000000..c18f764
+--- /dev/null
++++ b/src/os390.h
+@@ -0,0 +1,34 @@
++#ifndef H_OS390
++#define H_OS390 1
++
++#if (__CHARSET_LIB == 1)
++#undef open
++#define open __open_replaced
++#undef pipe 
++#define pipe __pipe_replaced
++#include <fcntl.h>
++#include <unistd.h>
++#undef pipe
++#undef open
++
++int __open_ascii(const char *filename, int opts, ...);
++int __pipe_ascii(int [2]);
++
++int open(const char* path, int oflag, ...) asm("__open_ascii");
++int pipe(int [2]) asm("__open_ascii");
++#endif
++
++#include <string.h>
++#include <sys/ps.h>
++#include <unistd.h>
++#include <limits.h>
++#include <_Nascii.h>
++#include <fcntl.h>
++#include <libgen.h>
++
++int __getfdccsid(int fd);
++int __setccsid(int fd, int ccsid);
++int __chgfdccsid(int fd, unsigned short ccsid);
++void __updateccsid(int fd, const char* path, int oflag, int perm);
++
++#endif
